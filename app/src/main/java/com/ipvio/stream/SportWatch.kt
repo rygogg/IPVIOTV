@@ -35,12 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 
 /**
- * Watch Live: connects an ESPN event with the channels of your playlist. ESPN delivers no streams; the channel comes only from
- * your own channel list, in this order:
- *  1. chosen by hand ("Assign channel", [SportFix]),
- *  2. TV guide: a show on one of your channels around the start time whose title names both teams (or the race / tournament),
- *  3. channel name: the channel itself names both teams (event channels of some providers).
- * No URL is ever built; playing uses the normal player.
+ * Watch Live: connects an ESPN event with all matching channels across all loaded playlists.
+ *  1. Chosen by hand ("Assign channel", [SportFix]),
+ *  2. TV guide (XMLTV programme title/description matches both teams or event),
+ *  3. Channel name across sports channels AND full playlist fallback.
  */
 object SportWatch {
     /** [why]: 0 = chosen by hand, 1 = TV guide, 2 = channel name. [show] = matching show title. */
@@ -55,8 +53,8 @@ object SportWatch {
     fun setSlots(s: List<SportLogic.Slot>) { slots = s; version++ }
 
     private val RACE = Regex("""formel\s?1|formula\s?1|\bf1\b|grand\s?prix""", RegexOption.IGNORE_CASE)
-    private val GOLF = Regex("""\bgolf\b|\bpga\b""", RegexOption.IGNORE_CASE)
-    private val UFC = Regex("""\bufc\b""", RegexOption.IGNORE_CASE)
+    private val GOLF = Regex("""\bgolf\b|\bpga\b|\bliv\s?golf\b|\bmasters\b""", RegexOption.IGNORE_CASE)
+    private val UFC = Regex("""\bufc\b|\bmma\b|\bboxing\b|\bfight\s?night\b""", RegexOption.IGNORE_CASE)
 
     /** Does a show text belong to this event? */
     fun showMatches(g: SportData.Game, text: String): Boolean = when (SportData.kindOf(g)) {
@@ -68,7 +66,6 @@ object SportWatch {
 
     private val cache = HashMap<String, Pair<Int, List<Hit>>>()
 
-    // Event channels ("DAZN 3: Arsenal – Spurs") are sports channels: matching names only there keeps big playlists fast
     private var sportSig = 0
     private var sportList: List<Item> = emptyList()
     private fun sportChannels(live: List<Item>): List<Item> {
@@ -79,7 +76,7 @@ object SportWatch {
         }
     }
 
-    /** Prepares the list of sports channels in the background (otherwise the first opening of the hub filters all channels on the main thread). */
+    /** Prepares the list of sports channels in the background. */
     fun prewarm(live: List<Item>) { sportChannels(live) }
 
     fun resolve(g: SportData.Game, live: List<Item>): List<Hit> {
@@ -90,20 +87,24 @@ object SportWatch {
         if (fixed != null) live.firstOrNull { it.id == fixed }?.let { out.add(Hit(it, 0, "")) }
         val multiDay = g.end > g.start
         for (s in slots) {
-            val timeOk = (s.live && g.state == 1) || kotlin.math.abs(s.prog.start - g.start) <= 3 * 3600 ||
+            val timeOk = (s.live && g.state == 1) || kotlin.math.abs(s.prog.start - g.start) <= 4 * 3600 ||
                 (multiDay && s.prog.start in g.start..g.end && g.state != 2)
             if (timeOk && showMatches(g, s.prog.title + " " + s.prog.desc)) out.add(Hit(s.ch, 1, s.prog.title))
         }
+        // Scan dedicated sports channels first, then scan remaining playlist channels so broadcast/league feeds are never missed
         SportData.channelsFor(g, sportChannels(live)).forEach { out.add(Hit(it, 2, "")) }
+        if (out.size < 2 && live.size <= 15_000) {
+            SportData.channelsFor(g, live).forEach { out.add(Hit(it, 2, "")) }
+        }
         val r = out.distinctBy { it.ch.id }
-        synchronized(cache) { if (cache.size > 800) cache.clear(); cache[g.key] = sig to r }
+        synchronized(cache) { if (cache.size > 1200) cache.clear(); cache[g.key] = sig to r }
         return r
     }
 
     fun channels(g: SportData.Game, live: List<Item>): List<Item> = resolve(g, live).map { it.ch }
 }
 
-/** Watch Live page: the event, all matching channels with reason and availability, play, assign by hand. */
+/** Watch Live page: the event, all matching channels across playlists, Multi-View launcher, and manual assignment. */
 @Composable
 internal fun WatchPage(g0: SportData.Game, hub: HubCtx) {
     val ctx = LocalContext.current
@@ -111,32 +112,73 @@ internal fun WatchPage(g0: SportData.Game, hub: HubCtx) {
     val g = SportFeed.latest[g0.key] ?: g0
     val hits = SportWatch.resolve(g, hub.live)
     var pick by remember { mutableStateOf(false) }
+    var showMultiView by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
     HubPageFrame("Live ansehen", g.groupName, { hub.nav.pop() }, first, rawTitle = false) {
         HubPanel(Modifier.fillMaxWidth()) {
             MatchHeader(g, 90)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(dpx(12))) {
-                if (hits.isNotEmpty()) HeroButton("Live ansehen", AIcon.Play, true, Modifier, 46) { hub.watch(g) }
-                FilterPill(if (hits.isEmpty()) "Sender zuordnen" else "Anderen Sender wählen", false, Modifier.focusRequester(first), aicon = AIcon.Edit) { pick = true }
-                if (SportFix.map.containsKey(SportFix.key(g))) FilterPill("Automatisch zuordnen", false, Modifier.trackFocus(), aicon = AIcon.Refresh) { SportFix.set(ctx, g, null) }
-                FilterPill("Mehr Infos", false, Modifier.trackFocus(), aicon = AIcon.Info) { hub.nav.open(HubPage.Match(g)) }
+                if (hits.isNotEmpty()) {
+                    HeroButton("Live ansehen", AIcon.Play, true, Modifier, 46) {
+                        hub.play(hits[0].ch, hits.map { it.ch })
+                    }
+                    FilterPill(
+                        "Mehrfachansicht (${MultiViewLogic.queuedIds.size}/${MultiViewLogic.MAX_SLOTS})",
+                        false,
+                        Modifier.trackFocus(),
+                        aicon = AIcon.Grid
+                    ) {
+                        MultiViewLogic.queueChannel(hits[0].ch.id)
+                        showMultiView = true
+                    }
+                }
+                FilterPill(
+                    if (hits.isEmpty()) "Sender zuordnen" else "Anderen Sender wählen",
+                    false,
+                    Modifier.focusRequester(first),
+                    aicon = AIcon.Edit
+                ) { pick = true }
+                if (SportFix.map.containsKey(SportFix.key(g))) {
+                    FilterPill("Automatisch zuordnen", false, Modifier.trackFocus(), aicon = AIcon.Refresh) {
+                        SportFix.set(ctx, g, null)
+                    }
+                }
+                FilterPill("Mehr Infos", false, Modifier.trackFocus(), aicon = AIcon.Info) {
+                    hub.nav.open(HubPage.Match(g))
+                }
             }
         }
         if (hits.isEmpty()) HubEmpty(
             AIcon.Live, "Kein passender Sender gefunden",
             "ESPN liefert keine Streams. Gesucht wird in deinem TV-Guide und in deinen Sendernamen. Du kannst den Sender auch selbst zuordnen; die App merkt sich das für dieses Spiel."
-        ) else LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = dpx(30)), verticalArrangement = Arrangement.spacedBy(dpx(4))) {
-            itemsIndexed(hits, key = { _, h -> h.ch.id }) { _, h ->
+        ) else LazyColumn(
+            Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(bottom = dpx(30)),
+            verticalArrangement = Arrangement.spacedBy(dpx(4))
+        ) {
+            itemsIndexed(hits, key = { _, h -> h.ch.id }) { idx, h ->
+                val queued = MultiViewLogic.queuedIds.contains(h.ch.id)
                 FRow({ hub.play(h.ch, hits.map { it.ch }) }) {
                     TeamLogo(h.ch.logo, h.ch.title.take(2), dpx(44))
                     Column(Modifier.weight(1f)) {
-                        Text(raw = true, text = h.ch.title, color = Tok.TextHi, fontSize = spx(18), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            raw = true,
+                            text = "#${idx + 1} ${h.ch.title}",
+                            color = Tok.TextHi,
+                            fontSize = spx(18),
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         val why = when (h.why) {
                             0 -> Lang.tr("Von dir zugeordnet")
                             1 -> Lang.tr("Laut TV-Guide") + ": " + h.show
                             else -> Lang.tr("Sendername passt")
                         }
                         Text(raw = true, text = why, color = Muted, fontSize = spx(14), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    SmallPill(if (queued) "In Multi-View ✓" else "+ Multi-View", icon = AIcon.Grid) {
+                        MultiViewLogic.queueChannel(h.ch.id)
                     }
                     val dead = DeadLinks.isDead(h.ch.url)
                     Box(Modifier.size(dpx(10)).clip(RoundedCornerShape(50)).background(if (dead) DS.Gold else Accent2))
@@ -146,6 +188,7 @@ internal fun WatchPage(g0: SportData.Game, hub: HubCtx) {
         }
     }
     if (pick) ChannelPicker(g, hub.live, { pick = false }) { id -> SportFix.set(ctx, g, id); pick = false }
+    if (showMultiView) MultiViewScreen(hub.live) { showMultiView = false }
 }
 
 /** Choose a channel by hand (sports channels first, all channels if the playlist has none). */

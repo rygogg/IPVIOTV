@@ -84,8 +84,8 @@ class HubCtx(val nav: HubNav, val live: List<Item>, private val onPlay: (Item, L
     fun play(ch: Item, list: List<Item>) { HubMemory.keep = nav.stack.toList(); nav.clear(); onPlay(ch, list) }
     /** Watch Live: start the best channel directly, otherwise show the Watch Live page (assign by hand). */
     fun watch(g: SportData.Game) {
-        val c = chans(g)
-        if (c.isNotEmpty()) play(c[0], c) else nav.open(HubPage.Watch(g))
+    val c = chans(g)
+    if (c.size == 1) play(c[0], c) else nav.open(HubPage.Watch(g))
     }
     fun open(g: SportData.Game) = nav.open(HubPage.Match(g))
 }
@@ -153,7 +153,7 @@ fun SportHub(live: List<Item>, onPlay: (Item, List<Item>) -> Unit) {
     LaunchedEffect(live, Xmltv.channelCount) {
         while (true) {
             val s = withContext(Dispatchers.Default) {
-                SportLogic.slots(live, { Xmltv.forChannel(it.tvgId) }, System.currentTimeMillis() / 1000, 48 * 3600L, 600)
+                SportLogic.slots(live, { Xmltv.forChannel(it.tvgId) }, System.currentTimeMillis() / 1000, 48 * 3600L, 5000)
             }
             SportWatch.setSlots(s.first + s.second)
             delay(60_000)

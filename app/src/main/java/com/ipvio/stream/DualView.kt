@@ -1,15 +1,16 @@
 package com.ipvio.stream
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -19,7 +20,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,21 +41,38 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 
 /**
- * Second stream in the live player (round 22): a separate, slim player next to the main picture.
- * Picture-in-picture (small window) or split screen (half width). Sound always comes from only one of the two streams.
- * The second stream preloads less and decodes at most 720p (PiP: SD) so weak devices are not overloaded.
- * Note: many providers allow only one connection per login – then the second stream drops and the app reports it.
+ * Second stream in the live player and multi-view tiles.
+ * Tuned for up to 8 concurrent streams on Amlogic S905X4 (onn. 4K Pro):
+ * - Disables audio track decoding completely on muted tiles.
+ * - Tiers resolution and RAM buffer sizes for slots 0..3 vs slots 4..7.
+ * - Falls back to alternate matching channels if a provider rejects a connection.
  */
 @Composable
-internal fun SecondStream(item: Item, split: Boolean, audioOn: Boolean, modifier: Modifier, small: Boolean = false) {
+internal fun SecondStream(
+    item: Item,
+    split: Boolean,
+    audioOn: Boolean,
+    modifier: Modifier,
+    small: Boolean = false,
+    slotIndex: Int = 0,
+    backups: List<Item> = emptyList()
+) {
     val ctx = LocalContext.current
     var failed by remember { mutableStateOf(false) }
-    // Hint for the user: why it failed and what to try (shown below the message)
     var tip by remember { mutableStateOf("") }
-    // One automatic second try: a provider often needs a moment before it accepts the extra connection
     var retries by remember { mutableIntStateOf(0) }
     var retryTick by remember { mutableIntStateOf(0) }
-    // small = tile of the multi view: lowest load (small picture, small buffer), because up to four players run at once
+    var backupIdx by remember(item.id) { mutableIntStateOf(-1) }
+
+    val candidates = remember(item.id, backups) {
+        val list = ArrayList<Item>()
+        list.add(item)
+        backups.forEach { b -> if (b.id != item.id && b.url != item.url) list.add(b) }
+        list
+    }
+    val activeItem = candidates.getOrElse(if (backupIdx >= 0) backupIdx else 0) { item }
+    val ultraLight = small && slotIndex >= 4
+
     val p = remember {
         runCatching {
             val http = DefaultHttpDataSource.Factory()
@@ -63,48 +80,102 @@ internal fun SecondStream(item: Item, split: Boolean, audioOn: Boolean, modifier
                 .setConnectTimeoutMs(10_000)
                 .setReadTimeoutMs(15_000)
             val lc = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(if (small) 3_000 else 4_000, if (small) 12_000 else 15_000, 1_000, 2_000)
-                .apply { if (small) setTargetBufferBytes(4 * 1024 * 1024) }
+                .setBufferDurationsMs(
+                    if (ultraLight) 2_000 else if (small) 2_500 else 4_000,
+                    if (ultraLight) 6_000 else if (small) 10_000 else 15_000,
+                    1_000,
+                    1_500
+                )
+                .apply {
+                    if (ultraLight) setTargetBufferBytes(2 * 1024 * 1024)
+                    else if (small) setTargetBufferBytes(3 * 1024 * 1024)
+                }
                 .build()
             ExoPlayer.Builder(ctx, SoftAudio.factory(ctx))
                 .setLoadControl(lc)
-                .setMediaSourceFactory(DefaultMediaSourceFactory(ctx).setDataSourceFactory(HostFailover.DataSourceWrapper.Factory(DefaultDataSource.Factory(ctx, http))))
+                .setMediaSourceFactory(
+                    DefaultMediaSourceFactory(ctx).setDataSourceFactory(
+                        HostFailover.DataSourceWrapper.Factory(DefaultDataSource.Factory(ctx, http))
+                    )
+                )
                 .build()
                 .also {
                     it.addListener(object : Player.Listener {
                         override fun onPlayerError(error: PlaybackException) {
                             tip = secondStreamTip(error)
-                            if (retries < 1) { retries++; retryTick++ } else failed = true
+                            if (retries < 1) {
+                                retries++
+                                retryTick++
+                            } else if (backupIdx + 1 < candidates.size - 1) {
+                                backupIdx++
+                                retries = 0
+                                retryTick++
+                            } else {
+                                failed = true
+                            }
                         }
-                        override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) failed = false }
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY) failed = false
+                        }
                     })
                 }
         }.getOrNull()
     }
     DisposableEffect(Unit) { onDispose { runCatching { p?.release() } } }
-    // Limit resolution: SD is enough in the small window, split at most 720p
-    // Multi view (small): the tile with sound gets a bit more, the muted one stays light (less load, less lag)
-    LaunchedEffect(split, small, audioOn) {
+
+    // Tiered resolution, bitrate, and audio decoder shutoff for 8-way Multi-View stability
+    LaunchedEffect(split, small, audioOn, slotIndex) {
         runCatching {
-            if (p != null) p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                .setMaxVideoSize(
-                    if (small) (if (audioOn) 960 else 640) else if (split) 1280 else 854,
-                    if (small) (if (audioOn) 540 else 360) else if (split) 720 else 480
-                )
-                .setMaxVideoBitrate(if (small) (if (audioOn) 3_500_000 else 1_200_000) else Int.MAX_VALUE)
-                .build()
+            if (p != null) {
+                val maxW = when {
+                    !small -> if (split) 1280 else 854
+                    audioOn || slotIndex == 0 -> 1280
+                    slotIndex in 1..3 -> 854
+                    else -> 640
+                }
+                val maxH = when {
+                    !small -> if (split) 720 else 480
+                    audioOn || slotIndex == 0 -> 720
+                    slotIndex in 1..3 -> 480
+                    else -> 360
+                }
+                val maxBitrate = when {
+                    !small -> Int.MAX_VALUE
+                    audioOn || slotIndex == 0 -> 4_000_000
+                    slotIndex in 1..3 -> 1_800_000
+                    else -> 900_000
+                }
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                    .setMaxVideoSize(maxW, maxH)
+                    .setMaxVideoBitrate(maxBitrate)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, small && !audioOn)
+                    .build()
+            }
         }
     }
-    LaunchedEffect(item.url, retryTick) {
-        if (retryTick > 0) kotlinx.coroutines.delay(1_500) else { retries = 0; tip = "" }
+
+    LaunchedEffect(activeItem.url, retryTick) {
+        if (retryTick > 0) kotlinx.coroutines.delay(1_200) else { retries = 0; tip = "" }
         failed = false
-        // Stalker portal: fetch the real address from the portal only now
-        val playUrl = runCatching { if (StalkerLogic.isItem(item.url)) StalkerApi.resolve(ctx, item.url) else item.url }.getOrNull()
+        val playUrl = runCatching {
+            if (StalkerLogic.isItem(activeItem.url)) StalkerApi.resolve(ctx, activeItem.url) else activeItem.url
+        }.getOrNull()
         if (p == null || playUrl == null || !openStream(p, playUrl, C.TIME_UNSET)) failed = true
     }
+
     LaunchedEffect(audioOn) { runCatching { p?.volume = if (audioOn) 1f else 0f } }
+
     val shape = RoundedCornerShape(if (split) 0.dp else 10.dp)
-    Box(modifier.clip(shape).background(Color.Black).border(if (split) 0.dp else 2.dp, if (audioOn) Accent2 else Color(0x66FFFFFF), shape)) {
+    Box(
+        modifier
+            .clip(shape)
+            .background(Color.Black)
+            .border(
+                if (split || small) 0.dp else 2.dp,
+                if (audioOn) Accent2 else Color(0x66FFFFFF),
+                shape
+            )
+    ) {
         AndroidView(
             factory = { c ->
                 PlayerView(c).apply {
@@ -116,15 +187,36 @@ internal fun SecondStream(item: Item, split: Boolean, audioOn: Boolean, modifier
             modifier = Modifier.fillMaxSize()
         )
         Row(
-            Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 3.dp),
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xB3080D1A))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(raw = true, text = (if (audioOn) "♪ " else "") + item.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val prefix = if (small) "#${slotIndex + 1} " else ""
+            val sound = if (audioOn) "♪ " else ""
+            Text(
+                raw = true,
+                text = prefix + sound + activeItem.title,
+                color = if (audioOn) Color(0xFF7DD3FC) else Color.White,
+                fontSize = if (small) 12.sp else 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        if (failed) Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
+        if (failed) Box(Modifier.fillMaxSize().background(Color(0xCC080D1A)), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Zusatzbild nicht abspielbar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                if (tip.isNotEmpty()) Text(tip, color = Color(0xFFD0D0D6), fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 4)
+                if (tip.isNotEmpty()) Text(
+                    tip,
+                    color = Color(0xFFD0D0D6),
+                    fontSize = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 4
+                )
             }
         }
     }
