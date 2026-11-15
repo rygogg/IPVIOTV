@@ -7,21 +7,30 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,15 +40,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
 
 private class Cat(val icon: AIcon, val title: String, val sub: String)
 
@@ -63,9 +63,7 @@ private val CATS = listOf(
     Cat(AIcon.Live, "Boomer Mode", "Ganz einfach: große Kacheln zum Auswählen"),
     Cat(AIcon.Sliders, "Startseite anpassen", "Reihen und Widgets wählen und ordnen"),
     Cat(AIcon.Info, "Über IPVIO Stream", "Version, Quellen, Updates"),
-    // Resets every settings tab at once (each tab 0..8 has its own reset for just that tab)
     Cat(AIcon.Warning, "Alles zurücksetzen", "Alle Einstellungen auf Standard"),
-    // Donate is always the very last entry
     Cat(AIcon.HeartFilled, "Spende", "Unterstütze IPVIO Stream")
 )
 
@@ -95,10 +93,8 @@ fun SettingsHub(onAdd: () -> Unit, reload: () -> Unit) {
         runCatching { if (page < 0) cardFocus[last].requestFocus() else backFocus.requestFocus() }
     }
 
-    // No verticalScroll of its own: the settings tab sits in a LazyColumn that scrolls itself.
     Column(Modifier.padding(horizontal = DS.PageX, vertical = dpx(20)), verticalArrangement = Arrangement.spacedBy(dpx(18))) {
         if (page < 0) {
-            // Round 15: in the style of the home screen (tiles with an own color per area, calm font, white focus)
             Column(verticalArrangement = Arrangement.spacedBy(dpx(4))) {
                 Text("Einstellungen", color = Color.White, fontSize = spx(38), fontWeight = FontWeight.ExtraBold)
                 Text("Alles rund um Aussehen, Wiedergabe und Konto", color = Tok.TextLow, fontSize = spx(16))
@@ -117,7 +113,6 @@ fun SettingsHub(onAdd: () -> Unit, reload: () -> Unit) {
                 SettingsBack(Modifier.focusRequester(backFocus)) { page = -1 }
                 Text(CATS[page].title, color = Color.White, fontSize = spx(36), fontWeight = FontWeight.ExtraBold)
             }
-            // Below the last selectable element there are often still hints: Down at the end brings them into view
             val fm = LocalFocusManager.current
             val endReq = remember { BringIntoViewRequester() }
             val endScope = rememberCoroutineScope()
@@ -131,45 +126,43 @@ fun SettingsHub(onAdd: () -> Unit, reload: () -> Unit) {
                     .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(dpx(18))).padding(dpx(26)),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-            when (page) {
-                0 -> GeneralPage(ctx)
-                1 -> RegionPage(ctx)
-                2 -> ViewPage(ctx)
-                3 -> DesignPage(ctx)
-                4 -> MenuPage(ctx)
-                5 -> PlayerPage(ctx)
-                6 -> AudioPage(ctx)
-                7 -> FilterPage(ctx) { page = 9 }
-                8 -> LivePage(ctx)
-                9 -> PlaylistPage(ctx, onAdd, reload)
-                10 -> ProfilesPage(ctx) { page = -1 }
-                11 -> ApiKeysPage(ctx)
-                12 -> ParentalPage(ctx) { page = -1 }
-                13 -> StoragePage(ctx)
-                14 -> DiagPage(ctx, reload)
-                16 -> BoomerPage(ctx) { page = -1 }
-                17 -> HomeLayoutPage(ctx)
-                15 -> ListImportPage(ctx)
-                SettingsNav.RESET_ALL -> ResetAllPage(ctx)
-                SettingsNav.RESET_ALL + 1 -> DonateSection(ctx)
-                else -> AboutPage(ctx)   // 18
-            }
-            // Every settings tab ends with a way back to the defaults. It resets only the settings of the tab that is open.
-            if (SettingsResetLogic.hasReset(page)) {
-                SectionTitle("Zurücksetzen")
-                ConfirmPill("Diese Seite zurücksetzen") {
-                    SettingsReset.page(ctx, page)
-                    settingsToast(ctx, "Diese Seite wurde zurückgesetzt.")
+                when (page) {
+                    0 -> GeneralPage(ctx)
+                    1 -> RegionPage(ctx)
+                    2 -> ViewPage(ctx)
+                    3 -> DesignPage(ctx)
+                    4 -> MenuPage(ctx)
+                    5 -> PlayerPage(ctx)
+                    6 -> AudioPage(ctx)
+                    7 -> FilterPage(ctx) { page = 9 }
+                    8 -> LivePage(ctx)
+                    9 -> PlaylistPage(ctx, onAdd, reload)
+                    10 -> ProfilesPage(ctx) { page = -1 }
+                    11 -> ApiKeysPage(ctx)
+                    12 -> ParentalPage(ctx) { page = -1 }
+                    13 -> StoragePage(ctx)
+                    14 -> DiagPage(ctx, reload)
+                    16 -> BoomerPage(ctx) { page = -1 }
+                    17 -> HomeLayoutPage(ctx)
+                    15 -> ListImportPage(ctx)
+                    SettingsNav.RESET_ALL -> ResetAllPage(ctx)
+                    SettingsNav.RESET_ALL + 1 -> DonateSection(ctx)
+                    else -> AboutPage(ctx)
                 }
-                Hint("Resets only the settings of this page to their defaults. All other pages stay unchanged. To reset everything at once, use Settings > Reset all.")
-            }
-            Spacer(Modifier.height(8.dp).bringIntoViewRequester(endReq))
+                if (SettingsResetLogic.hasReset(page)) {
+                    SectionTitle("Zurücksetzen")
+                    ConfirmPill("Diese Seite zurücksetzen") {
+                        SettingsReset.page(ctx, page)
+                        settingsToast(ctx, "Diese Seite wurde zurückgesetzt.")
+                    }
+                    Hint("Resets only the settings of this page to their defaults. All other pages stay unchanged. To reset everything at once, use Settings > Reset all.")
+                }
+                Spacer(Modifier.height(8.dp).bringIntoViewRequester(endReq))
             }
         }
     }
 }
 
-/** Color per area: same structure as the home screen tiles (gradient, icon in the area color, arrow). */
 private fun catColors(i: Int): Triple<Color, Color, Color> {
     val h = (i * 360f / CATS.size + 18f) % 360f
     return Triple(Color.hsv(h, 0.62f, 0.34f), Color.hsv(h, 0.70f, 0.14f), Color.hsv(h, 0.45f, 1f))
@@ -203,7 +196,6 @@ private fun SettingsCard(cat: Cat, idx: Int, modifier: Modifier, onClick: () -> 
     }
 }
 
-/** Back button of the sub pages: round button like in the header. */
 @Composable
 private fun SettingsBack(modifier: Modifier, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
@@ -227,13 +219,11 @@ internal fun SectionTitle(text: String) {
     Text(text, color = Color.White, fontSize = spx(22), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
 }
 
-/** Choice chip with optional color dots. The chosen entry carries a check mark and a light border. */
 @Composable
 internal fun ChoiceChip(label: String, selected: Boolean, dots: List<Color> = emptyList(), modifier: Modifier = Modifier, onFocus: ((Boolean) -> Unit)? = null, check: Boolean = true, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     val sc by animateFloatAsState(if (f) focusScale(1.05f) else 1f, label = "chip")
     val shape = RoundedCornerShape(50)
-    // Focus like all buttons: white surface, dark text. Selected (without focus): lighter surface, light border and check mark.
     Row(
         modifier.graphicsLayer { scaleX = sc; scaleY = sc }.height(46.dp).clip(shape)
             .background(if (f) DS.FocusFill else if (selected) DS.Overlay3 else Surf)
@@ -250,12 +240,10 @@ internal fun ChoiceChip(label: String, selected: Boolean, dots: List<Color> = em
     }
 }
 
-/** Chip for the sub pages of "View" (ViewSettings.kt). */
 @Composable
 internal fun ViewChip(label: String, selected: Boolean, onFocus: (Boolean) -> Unit, onClick: () -> Unit) =
-    ChoiceChip(label, selected, onFocus = onFocus, check = false, onClick = onClick)   // headings: no check mark (only real settings get one)
+    ChoiceChip(label, selected, onFocus = onFocus, check = false, onClick = onClick)
 
-/** Round color swatch for the custom color. */
 @Composable
 private fun Swatch(rgb: Int, selected: Boolean, onFocus: ((Boolean) -> Unit)? = null, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
@@ -272,7 +260,6 @@ private fun Swatch(rgb: Int, selected: Boolean, onFocus: ((Boolean) -> Unit)? = 
     }
 }
 
-/** Switch row as in standard apps: title, explanation and an on/off switch. OK toggles. */
 @Composable
 internal fun ToggleRow(title: String, desc: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     var f by remember { mutableStateOf(false) }
@@ -300,7 +287,6 @@ internal fun ToggleRow(title: String, desc: String?, checked: Boolean, onChange:
     }
 }
 
-/** Dangerous action with confirmation: the first press asks, the second executes (the question expires after 4 s). */
 @Composable
 internal fun ConfirmPill(label: String, onConfirm: () -> Unit) {
     var armed by remember { mutableStateOf(false) }
@@ -313,7 +299,6 @@ internal fun ConfirmPill(label: String, onConfirm: () -> Unit) {
 private fun appVersion(ctx: Context): String =
     runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"
 
-/** Selection row in the same style as ToggleRow: title left, current value right, OK opens the list. */
 @Composable
 internal fun SelectRow(label: String, value: String, options: List<String>, selected: Int, active: Boolean = false, onPick: (Int) -> Unit) {
     var f by remember { mutableStateOf(false) }
@@ -337,7 +322,6 @@ internal fun SelectRow(label: String, value: String, options: List<String>, sele
     }
 }
 
-/** Number pad for the PIN: arrow keys + OK or directly the digit keys of the remote. */
 @Composable
 internal fun PinPad(title: String, hint: String?, error: String?, onSubmit: (String) -> Unit, onCancel: () -> Unit) {
     var pin by remember { mutableStateOf("") }
@@ -409,12 +393,10 @@ private fun RegionPage(ctx: Context) {
 
 @Composable
 private fun ParentalPage(ctx: Context, onExit: () -> Unit) {
-    // Steps of the PIN entry: 0 = none, 1 = unlock, 2 = new PIN, 3 = confirm new PIN, 4 = old PIN when removing
     var step by remember { mutableIntStateOf(if (Parental.pinSet && !Parental.unlocked) 1 else 0) }
     var first by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) { onDispose { Parental.unlocked = false } }
-    // Counting via regex over all titles: in the background, not while drawing
     val src = PlaylistStore.channels
     val hideNow = Parental.hideAdult
     val hiddenCount by produceState(0, Parental.version, src, hideNow) {
@@ -481,24 +463,22 @@ private fun GeneralPage(ctx: Context) {
     Hint("Diese Seite öffnet sich beim Start der App. Versteckte Menüpunkte sind nicht wählbar.")
     ToggleRow("Letzten Sender beim Start abspielen", "Wenn du zuletzt Live TV gesehen hast, läuft dieser Sender direkt nach dem Start.", General.resumeLive) { General.setResumeLive(ctx, it) }
     ToggleRow("Letzten Film / letzte Serie beim Start fortsetzen", "Wenn du zuletzt einen Film oder eine Serie gesehen hast, läuft sie nach dem Start an der gemerkten Stelle weiter (bei einer fertigen Folge mit der nächsten).", General.resumeVod) { General.setResumeVod(ctx, it) }
-RemoteKeySettingsSection(ctx)
+
     SectionTitle("Bedienung")
     ToggleRow("Tastatur des Geräts in der Suche", "Aus: die eingebaute Tastatur der App. An: die Tastatur deines Geräts (z. B. Gboard) mit allen Sprachen, Sprachfunktion und Einfügen. Mit OK auf das Suchfeld wird sie geöffnet.", AppSettings.systemKeyboard) { AppSettings.setSystemKeyboard(ctx, it) }
-    ToggleRow("Beenden bestätigen", "Auf der Startseite muss „Zurück“ zweimal gedrückt werden, damit die App nicht aus Versehen schließt.", ) {General.confirmExit General.setConfirmExit(ctx, it) }
-
-    // Phone/tablet: landscape (the UI is built for the TV)
+    ToggleRow("Beenden bestätigen", "Auf der Startseite muss „Zurück“ zweimal gedrückt werden, damit die App nicht aus Versehen schließt.", General.confirmExit) { General.setConfirmExit(ctx, it) }
     if (MobilePrefs.isMobile(ctx)) {
         val act = generateSequence<Context>(ctx) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
         ToggleRow("Auf dem Handy im Querformat", "Die App ist für den Fernseher gebaut und wirkt quer am besten. Aus: dreht mit dem Gerät. Im Player: Tippen zeigt die Steuerung, Doppeltippen links/rechts spult, in der Mitte Pause.", MobilePrefs.landscape) {
             if (act != null) MobilePrefs.set(act, it)
         }
     }
+    RemoteKeySettingsSection(ctx)
 }
 
 internal fun canStartFromBoot(ctx: Context): Boolean =
     android.os.Build.VERSION.SDK_INT < 29 || android.provider.Settings.canDrawOverlays(ctx)
 
-/** Opens the overlay permission screen; falls back to the app details and the general settings (Fire TV has no overlay screen). */
 internal fun openOverlaySettings(ctx: Context) {
     val pkg = android.net.Uri.parse("package:" + ctx.packageName)
     val intents = listOf(
@@ -516,7 +496,6 @@ internal fun openOverlaySettings(ctx: Context) {
     android.widget.Toast.makeText(ctx, Lang.tr("Dieses Gerät bietet die Einstellung nicht an. Autostart funktioniert evtl. trotzdem."), android.widget.Toast.LENGTH_LONG).show()
 }
 
-/** Shows the result of the permission check so the "Prüfen" button gives visible feedback. */
 internal fun reportOverlayState(ctx: Context) {
     val msg = if (canStartFromBoot(ctx)) "Berechtigung erteilt. Der Autostart ist bereit."
     else "Berechtigung fehlt noch. Bitte „Einstellung öffnen“ wählen und IPVIO Stream erlauben."
@@ -527,7 +506,6 @@ internal fun reportOverlayState(ctx: Context) {
 private fun StoragePage(ctx: Context) {
     val scope = rememberCoroutineScope()
     var tick by remember { mutableIntStateOf(0) }
-    // Sizes and deleting run in the background: the metadata folder can contain tens of thousands of files
     var sizes by remember { mutableStateOf(List(General.AREAS.size) { 0L }) }
     LaunchedEffect(tick) { sizes = withContext(Dispatchers.IO) { General.AREAS.map { General.areaSize(ctx, it) } } }
     SectionTitle("Zwischenspeicher")
@@ -565,7 +543,6 @@ private fun StoragePage(ctx: Context) {
             }
         }
     }
-    // Share: save the backup to a freely chosen place (Google Drive, Downloads, USB …) or load it from there
     val saveAs = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -577,7 +554,6 @@ private fun StoragePage(ctx: Context) {
             backupMsg = if (ok) "Sicherung gespeichert." else "Sicherung fehlgeschlagen."
         }
     }
-    // Same, but with playlists and logins: for the second device (contains passwords, keep the file private)
     val saveAsFull = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -624,7 +600,6 @@ private fun StoragePage(ctx: Context) {
 private fun MenuPage(ctx: Context) {
     Hint("Verschiebe Einträge mit den Pfeil-Knöpfen oder blende sie aus. Start und Einstellungen bleiben immer sichtbar.")
     AppSettings.menuOrder.forEach { id ->
-        // key(id): the row (and the focus on its arrow) moves together with the entry, so the cursor follows it
         androidx.compose.runtime.key(id) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(MENU_LABELS[id], color = if (id in AppSettings.menuHidden) Muted else Color.White,
@@ -723,138 +698,133 @@ private fun DesignPage(ctx: Context) {
     fun save(accent: Int = Look.accentIdx, custom: Int = Look.custom, bg: Int = Look.bgIdx, motion: Int = Look.motion, scale: Int = Look.uiScale, custom2: Int = Look.custom2) =
         AppSettings.setLook(ctx, accent, custom, bg, motion, scale, custom2)
     fun col(rgb: Int) = Color(0xFF000000.toInt() or rgb)
-    // Show the preview at the top right (fixed, does not scroll along); show highlighted colors only there
     DisposableEffect(Unit) {
         DesignPreview.clear(); DesignPreview.visible = true
         onDispose { DesignPreview.visible = false; DesignPreview.clear() }
     }
-    // When moving on, "focus gone" may arrive only after "focus there" of the next entry: clear only the own preview
     fun hover(on: Boolean, label: String, set: () -> Unit) {
         if (on) { DesignPreview.clear(); set(); DesignPreview.label = label }
         else if (DesignPreview.label == label) DesignPreview.clear()
     }
 
-    // Space stays on the right for the preview
     Column(Modifier.padding(end = DesignPreview.WIDTH + 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    SectionTitle("Fertige Designs")
-    Look.DESIGNS.chunked(3).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { d ->
-                val a = Look.ACCENTS[d.accent.coerceIn(0, Look.ACCENTS.lastIndex)]
-                val on = Look.accentIdx == d.accent && Look.bgIdx == d.bg
-                ChoiceChip(d.name, on, listOf(col(a.fill), col(a.highlight)),
-                    onFocus = { hover(it, Lang.tr(d.name)) { DesignPreview.accent = d.accent; DesignPreview.bg = d.bg } }) { save(accent = d.accent, bg = d.bg) }
-            }
-        }
-    }
-    Hint("Ein Klick stellt Farbe und Hintergrund passend ein. Darunter kannst du alles weiter von Hand ändern.")
-    SectionTitle("Farbthema")
-    val ids = Look.ACCENTS.indices.toList() + Look.CUSTOM
-    ids.chunked(2).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { i ->
-                if (i == Look.CUSTOM) {
-                    val c2 = if (Look.custom2 >= 0) Look.custom2 else Look.autoHighRgb()
-                    ChoiceChip("Eigene Farben", Look.accentIdx == i, listOf(col(Look.custom), col(c2)),
-                        onFocus = { hover(it, Lang.tr("Eigene Farben")) { DesignPreview.accent = i } }) { save(accent = i) }
-                } else {
-                    val p = Look.ACCENTS[i]
-                    ChoiceChip(p.name, Look.accentIdx == i, listOf(col(p.fill), col(p.highlight)),
-                        onFocus = { hover(it, Lang.tr(p.name)) { DesignPreview.accent = i } }) { save(accent = i) }
-                }
-            }
-        }
-    }
-
-    if (Look.accentIdx == Look.CUSTOM) {
-        SectionTitle("Eigene Farben")
-        // Both colors freely selectable: first select the color above, then swatch or hex code
-        var slot by remember { mutableIntStateOf(0) }
-        val c2 = if (Look.custom2 >= 0) Look.custom2 else Look.autoHighRgb()
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ChoiceChip("Farbe 1 · Flächen", slot == 0, listOf(col(Look.custom))) { slot = 0 }
-            ChoiceChip(if (Look.custom2 >= 0) "Farbe 2 · Hervorhebung" else "Farbe 2 · automatisch", slot == 1, listOf(col(c2))) { slot = 1 }
-        }
-        val current = if (slot == 0) Look.custom else c2
-        fun pick(rgb: Int) { if (slot == 0) save(custom = rgb) else save(custom2 = rgb) }
-        Look.SWATCHES.chunked(8).forEach { row ->
+        SectionTitle("Fertige Designs")
+        Look.DESIGNS.chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { c ->
-                    Swatch(c, c == current, onFocus = { on ->
-                        hover(on, ThemeMath.hexOf(c)) { if (slot == 0) DesignPreview.custom = c else DesignPreview.custom2 = c }
-                    }) { pick(c) }
+                row.forEach { d ->
+                    val a = Look.ACCENTS[d.accent.coerceIn(0, Look.ACCENTS.lastIndex)]
+                    val on = Look.accentIdx == d.accent && Look.bgIdx == d.bg
+                    ChoiceChip(d.name, on, listOf(col(a.fill), col(a.highlight)),
+                        onFocus = { hover(it, Lang.tr(d.name)) { DesignPreview.accent = d.accent; DesignPreview.bg = d.bg } }) { save(accent = d.accent, bg = d.bg) }
                 }
             }
         }
-        var hex by remember(slot, current) { mutableStateOf(ThemeMath.hexOf(current)) }
-        val parsed = ThemeMath.parseHex(hex)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.width(240.dp)) { Field(hex, { hex = it.take(7) }, "#RRGGBB") }
-            PillButton(if (parsed != null) "Übernehmen" else "Ungültig", light = parsed != null) { parsed?.let { pick(it) } }
-            if (slot == 1 && Look.custom2 >= 0) PillButton("Automatisch") { save(custom2 = -1) }
-        }
-        if (Look.custom2 >= 0 && ThemeMath.contrast(Look.custom2, Look.BGS[Look.bgIdx.coerceIn(0, Look.BGS.lastIndex)].bg) < 3.0) {
-            Text("Farbe 2 ist auf diesem Hintergrund schwer lesbar.", color = Color(0xFFFFB454), fontSize = 15.sp)
-        }
-        Hint("Farbe 1 färbt Knöpfe, Balken und markierte Flächen – die Schrift darauf wird automatisch hell oder dunkel, damit sie lesbar bleibt. Farbe 2 färbt Hervorhebungen, Rahmen und farbige Schrift. „Automatisch“ berechnet Farbe 2 passend zu Farbe 1.")
-    }
-
-    SectionTitle("Hintergrund")
-    Look.BGS.indices.chunked(2).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { i ->
-                val b = Look.BGS[i]
-                ChoiceChip(b.name, Look.bgIdx == i, listOf(Color(0xFF000000.toInt() or b.surf2)),
-                    onFocus = { hover(it, Lang.tr(b.name)) { DesignPreview.bg = i } }) { save(bg = i) }
+        Hint("Ein Klick stellt Farbe und Hintergrund passend ein. Darunter kannst du alles weiter von Hand ändern.")
+        SectionTitle("Farbthema")
+        val ids = Look.ACCENTS.indices.toList() + Look.CUSTOM
+        ids.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    if (i == Look.CUSTOM) {
+                        val c2 = if (Look.custom2 >= 0) Look.custom2 else Look.autoHighRgb()
+                        ChoiceChip("Eigene Farben", Look.accentIdx == i, listOf(col(Look.custom), col(c2)),
+                            onFocus = { hover(it, Lang.tr("Eigene Farben")) { DesignPreview.accent = i } }) { save(accent = i) }
+                    } else {
+                        val p = Look.ACCENTS[i]
+                        ChoiceChip(p.name, Look.accentIdx == i, listOf(col(p.fill), col(p.highlight)),
+                            onFocus = { hover(it, Lang.tr(p.name)) { DesignPreview.accent = i } }) { save(accent = i) }
+                    }
+                }
             }
         }
-    }
 
-    // Round 14: choice as fields (like the colors) – highlighting shows the effect in the preview, OK adopts it
-    SectionTitle("Animationen")
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Look.MOTION.forEachIndexed { i, n ->
-            ChoiceChip(n, Look.motion == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.motion = i } }) { save(motion = i) }
+        if (Look.accentIdx == Look.CUSTOM) {
+            SectionTitle("Eigene Farben")
+            var slot by remember { mutableIntStateOf(0) }
+            val c2 = if (Look.custom2 >= 0) Look.custom2 else Look.autoHighRgb()
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChoiceChip("Farbe 1 · Flächen", slot == 0, listOf(col(Look.custom))) { slot = 0 }
+                ChoiceChip(if (Look.custom2 >= 0) "Farbe 2 · Hervorhebung" else "Farbe 2 · automatisch", slot == 1, listOf(col(c2))) { slot = 1 }
+            }
+            val current = if (slot == 0) Look.custom else c2
+            fun pick(rgb: Int) { if (slot == 0) save(custom = rgb) else save(custom2 = rgb) }
+            Look.SWATCHES.chunked(8).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { c ->
+                        Swatch(c, c == current, onFocus = { on ->
+                            hover(on, ThemeMath.hexOf(c)) { if (slot == 0) DesignPreview.custom = c else DesignPreview.custom2 = c }
+                        }) { pick(c) }
+                    }
+                }
+            }
+            var hex by remember(slot, current) { mutableStateOf(ThemeMath.hexOf(current)) }
+            val parsed = ThemeMath.parseHex(hex)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.width(240.dp)) { Field(hex, { hex = it.take(7) }, "#RRGGBB") }
+                PillButton(if (parsed != null) "Übernehmen" else "Ungültig", light = parsed != null) { parsed?.let { pick(it) } }
+                if (slot == 1 && Look.custom2 >= 0) PillButton("Automatisch") { save(custom2 = -1) }
+            }
+            if (Look.custom2 >= 0 && ThemeMath.contrast(Look.custom2, Look.BGS[Look.bgIdx.coerceIn(0, Look.BGS.lastIndex)].bg) < 3.0) {
+                Text("Farbe 2 ist auf diesem Hintergrund schwer lesbar.", color = Color(0xFFFFB454), fontSize = 15.sp)
+            }
+            Hint("Farbe 1 färbt Knöpfe, Balken und markierte Flächen – die Schrift darauf wird automatisch hell oder dunkel, damit sie lesbar bleibt. Farbe 2 färbt Hervorhebungen, Rahmen und farbige Schrift. „Automatisch“ berechnet Farbe 2 passend zu Farbe 1.")
         }
-    }
-    SectionTitle("Anzeigegröße")
-    Look.SCALES.indices.chunked(3).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { i ->
-                val n = Look.SCALES[i]
-                ChoiceChip(n, Look.uiScale == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.scale = i } }) { save(scale = i) }
+
+        SectionTitle("Hintergrund")
+        Look.BGS.indices.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    val b = Look.BGS[i]
+                    ChoiceChip(b.name, Look.bgIdx == i, listOf(Color(0xFF000000.toInt() or b.surf2)),
+                        onFocus = { hover(it, Lang.tr(b.name)) { DesignPreview.bg = i } }) { save(bg = i) }
+                }
             }
         }
-    }
-    val cfg = LocalConfiguration.current
-    val factor = ThemeMath.uiFactor(Look.uiScale, cfg.screenWidthDp, cfg.screenHeightDp)
-    Hint("Oberfläche aktuell ×" + String.format(java.util.Locale.US, "%.2f", factor) + " (Bildschirm " + cfg.screenWidthDp + " dp breit).")
-    Hint("Standard ist 85 %: mehr Inhalt, Elemente bleiben gut lesbar. „Automatisch“ vergrößert die App auf sehr breiten Bildschirmen.")
-    Hint("Animationen „Aus“ schaltet die Vergrößerung beim Fokus ab, „Dezent“ macht sie schwächer. Das schont schwache Geräte.")
 
-    SectionTitle("Bildschirm anpassen")
-    var calibrate by remember { mutableStateOf(false) }
-    PillButton("Bildschirmrand einstellen", light = true, icon = AIcon.Sliders) { calibrate = true }
-    Hint("Zeigt einen Rahmen mit vier Ecken am Fernseher: Stelle den Rand ein, bis alle vier Ecken sichtbar sind. Hilft, wenn dein Fernseher Menü oder Texte am Rand abschneidet.")
-    if (calibrate) FitCalibration { calibrate = false }
-    ToggleRow("Uhr anzeigen", null, General.showClock) { General.setShowClock(ctx, it) }
-    SectionTitle("Schriftart")
-    General.FONTS.indices.chunked(3).forEach { row ->
+        SectionTitle("Animationen")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { i ->
-                val n = General.FONTS[i]
-                ChoiceChip(n, General.fontIdx == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.font = i } }) { General.setFont(ctx, i) }
+            Look.MOTION.forEachIndexed { i, n ->
+                ChoiceChip(n, Look.motion == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.motion = i } }) { save(motion = i) }
             }
         }
-    }
-    Hint("Outfit (Standard) und Inter sind in die App eingebaut, die übrigen Schriften stammen von deinem Gerät.")
-    SectionTitle("Schriftgröße")
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        General.TEXT_SCALES.forEachIndexed { i, n ->
-            ChoiceChip(n, General.textScaleIdx == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.textScale = i } }) { General.setTextScale(ctx, i) }
+        SectionTitle("Anzeigegröße")
+        Look.SCALES.indices.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    val n = Look.SCALES[i]
+                    ChoiceChip(n, Look.uiScale == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.scale = i } }) { save(scale = i) }
+                }
+            }
         }
-    }
-    Hint("Fünf klare Systemschriften, die auf jedem Gerät vorhanden sind. Die Schriftgröße wirkt zusätzlich zur Anzeigegröße.")
+        val cfg = LocalConfiguration.current
+        val factor = ThemeMath.uiFactor(Look.uiScale, cfg.screenWidthDp, cfg.screenHeightDp)
+        Hint("Oberfläche aktuell ×" + String.format(java.util.Locale.US, "%.2f", factor) + " (Bildschirm " + cfg.screenWidthDp + " dp breit).")
+        Hint("Standard ist 85 %: mehr Inhalt, Elemente bleiben gut lesbar. „Automatisch“ vergrößert die App auf sehr breiten Bildschirmen.")
+        Hint("Animationen „Aus“ schaltet die Vergrößerung beim Fokus ab, „Dezent“ macht sie schwächer. Das schont schwache Geräte.")
+
+        SectionTitle("Bildschirm anpassen")
+        var calibrate by remember { mutableStateOf(false) }
+        PillButton("Bildschirmrand einstellen", light = true, icon = AIcon.Sliders) { calibrate = true }
+        Hint("Zeigt einen Rahmen mit vier Ecken am Fernseher: Stelle den Rand ein, bis alle vier Ecken sichtbar sind. Hilft, wenn dein Fernseher Menü oder Texte am Rand abschneidet.")
+        if (calibrate) FitCalibration { calibrate = false }
+        ToggleRow("Uhr anzeigen", null, General.showClock) { General.setShowClock(ctx, it) }
+        SectionTitle("Schriftart")
+        General.FONTS.indices.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    val n = General.FONTS[i]
+                    ChoiceChip(n, General.fontIdx == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.font = i } }) { General.setFont(ctx, i) }
+                }
+            }
+        }
+        Hint("Outfit (Standard) und Inter sind in die App eingebaut, die übrigen Schriften stammen von deinem Gerät.")
+        SectionTitle("Schriftgröße")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            General.TEXT_SCALES.forEachIndexed { i, n ->
+                ChoiceChip(n, General.textScaleIdx == i, onFocus = { hover(it, Lang.tr(n)) { DesignPreview.textScale = i } }) { General.setTextScale(ctx, i) }
+            }
+        }
+        Hint("Fünf klare Systemschriften, die auf jedem Gerät vorhanden sind. Die Schriftgröße wirkt zusätzlich zur Anzeigegröße.")
     }
 }
 
@@ -893,7 +863,6 @@ private fun DiagPage(ctx: Context, reload: () -> Unit) {
             Text(v, color = Color.White, fontSize = 16.sp, modifier = Modifier.widthIn(max = 640.dp))
         }
     }
-    // Hint before the buttons: text below the last button never scrolls the list into view (nothing below is selectable)
     Hint("Der Bericht enthält keine Adressen, Benutzernamen oder Passwörter. Er wird nur in die Zwischenablage kopiert und nirgendwohin gesendet.")
     Hint("Auf dem Fernseher lässt sich die Zwischenablage oft nicht nutzen: Unter Einstellungen > Speicher > „Übertragung im WLAN starten“ kannst du den Bericht am Handy öffnen (Seite „Letzten Absturzbericht anzeigen“) und dort kopieren.")
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -911,7 +880,6 @@ private fun DiagPage(ctx: Context, reload: () -> Unit) {
 @Composable
 private fun AudioPage(ctx: Context) {
     TrackSettingsSection(ctx)
-    // Round 14: subtitle style with live preview. Highlighting shows the effect immediately in the picture above, OK adopts it.
     Text("Untertitel-Stil", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
     var pSize by remember { mutableStateOf<Int?>(null) }
     var pColor by remember { mutableStateOf<Int?>(null) }
@@ -927,7 +895,6 @@ private fun AudioPage(ctx: Context) {
     Hint("Rand: „Schatten“ legt einen weichen dunklen Schatten unter die Schrift, „Kontur“ zeichnet einen schwarzen Rand rundherum (besser lesbar auf hellem Bild), „Kein“ lässt die Schrift pur.")
 }
 
-/** A row of choice fields; [onProbe] gets the highlighted entry (null = none highlighted). */
 @Composable
 private fun SubChoiceRow(title: String, names: List<String>, selected: Int, onProbe: (Int?) -> Unit, onPick: (Int) -> Unit) {
     Text(title, color = Muted, fontSize = 15.sp)
@@ -938,7 +905,6 @@ private fun SubChoiceRow(title: String, names: List<String>, selected: Int, onPr
     }
 }
 
-/** Small "TV picture" with a subtitle line in the chosen style. */
 @Composable
 private fun SubtitlePreview(size: Int, color: Int, bg: Int, edge: Int) {
     val shape = RoundedCornerShape(DS.RadiusM)
@@ -949,7 +915,6 @@ private fun SubtitlePreview(size: Int, color: Int, bg: Int, edge: Int) {
         contentAlignment = Alignment.BottomCenter
     ) {
         AppIcon(AIcon.Play, Color(0x33FFFFFF), Modifier.align(Alignment.Center), 46.dp)
-        // Shadow = dark soft shadow to the lower right; outline = black rim all around (drawn as offset copies), so both look different
         val shadow = if (edge == 1) androidx.compose.ui.graphics.Shadow(Color.Black, androidx.compose.ui.geometry.Offset(4f, 4f), 6f) else null
         val txt = "So sehen deine Untertitel aus"
         val fs = (20 * SubStyle.SIZES[size.coerceIn(0, SubStyle.SIZES.lastIndex)].second).sp
@@ -984,17 +949,12 @@ private fun FilterPage(ctx: Context, onLanguages: () -> Unit) {
     CategoryFilterSection(ctx)
 }
 
-/**
- * Categories of movies, series and Live TV (Wishbox): hide single categories, or switch all off and only the wanted ones
- * back on (as in TiviMate). Uses the "ignore" store, so hidden categories disappear everywhere without reloading.
- * Each type is collapsed at first: a playlist can have hundreds of categories.
- */
 @Composable
 private fun CategoryFilterSection(ctx: Context) {
     IgnoredGroups.init(ctx)
     val ver = IgnoredGroups.version
     val all = PlaylistStore.channels
-    val groups by produceState<Map<Kind, List<Pair<String, Int>>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
+    val groups by produceState>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
         value = withContext(Dispatchers.Default) {
             val raw = PlaylistStore.unfilteredChannels()
             val out = LinkedHashMap<Kind, List<Pair<String, Int>>>()
@@ -1033,24 +993,19 @@ private fun CategoryFilterSection(ctx: Context) {
     if (ver < 0) Spacer(Modifier.height(0.dp))
 }
 
-/**
- * "Ignore": bundle titles by the provider's tag ("TR", "EN", "AR" …) and switch whole bundles on or off.
- * Switched-off bundles disappear everywhere, the playlist does not have to be reloaded for that. Complements the language filter.
- */
 @Composable
 private fun IgnoredGroupsSection(ctx: Context) {
     IgnoredGroups.init(ctx)
     val ver = IgnoredGroups.version
     val all = PlaylistStore.channels
-    // Counting over the whole (unfiltered) list in the background
-    val stats by produceState<Map<Kind, List<Pair<String, Int>>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
+    val stats by produceState>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
         value = withContext(Dispatchers.Default) {
             val raw = PlaylistStore.unfilteredChannels()
             val out = LinkedHashMap<Kind, List<Pair<String, Int>>>()
             for (k in listOf(Kind.MOVIE, Kind.SERIES, Kind.LIVE)) {
                 val m = HashMap<String, Int>()
                 for (i in raw) if (i.kind == k) { val t = IgnoredGroups.tagOf(i); m[t] = (m[t] ?: 0) + 1 }
-                out[k] = m.entries.sortedWith(compareBy<Map.Entry<String, Int>>({ it.key.isEmpty() }, { -it.value })).take(40).map { it.key to it.value }
+                out[k] = m.entries.sortedWith(compareBy>({ it.key.isEmpty() }, { -it.value })).take(40).map { it.key to it.value }
             }
             out
         }
@@ -1080,15 +1035,11 @@ private fun IgnoredGroupsSection(ctx: Context) {
     if (ver < 0) Spacer(Modifier.height(0.dp))
 }
 
-/**
- * Language filter: languages of the playlist with counts. Selection first as a draft (tick several languages on/off),
- * loading happens only with "Apply" – otherwise a new parse would start after every tick.
- */
 @Composable
 private fun LanguageFilterSection(ctx: Context) {
     val counts = PlaylistStore.langCounts
     val list = remember(counts) {
-        counts.entries.sortedWith(compareBy<Map.Entry<String, Int>>({ it.key == LangTagLogic.UNKNOWN }, { -it.value })).map { it.key to it.value }
+        counts.entries.sortedWith(compareBy>({ it.key == LangTagLogic.UNKNOWN }, { -it.value })).map { it.key to it.value }
     }
     val hidden = LangFilter.hidden
     var draft by remember(hidden) { mutableStateOf(hidden) }
@@ -1097,10 +1048,8 @@ private fun LanguageFilterSection(ctx: Context) {
     val changed = draft != hidden
     fun edit(h: Set<String>) { draft = h; warn = false }
     fun apply() {
-        // Never hide everything: the playlist would be empty and you could hardly get back
         if (list.isNotEmpty() && list.all { it.first in draft }) { warn = true; big = false; return }
         warn = false
-        // Very large selection: allowed, but with a notice (if memory gets too tight, the old selection stays active)
         big = !PlaylistStore.fits(draft)
         LangFilter.setAndApply(ctx, draft)
     }
@@ -1138,7 +1087,6 @@ private fun LanguageFilterSection(ctx: Context) {
             code !in draft
         ) { edit(if (code in draft) draft - code else draft + code) }
     }
-    // After a long list: Apply also at the bottom so you do not have to scroll back
     if (list.size > 4) ApplyRow()
 }
 
@@ -1178,7 +1126,6 @@ private fun PlaylistPage(ctx: Context, onAdd: () -> Unit, reload: () -> Unit) {
     val scope = rememberCoroutineScope()
     var editing by remember { mutableIntStateOf(-1) }
     var name by remember { mutableStateOf("") }
-    // Editing the backup servers of an Xtream playlist
     var editingB by remember { mutableIntStateOf(-1) }
     var backups by remember { mutableStateOf(backupList(emptyList())) }
     var backupErr by remember { mutableStateOf<String?>(null) }
@@ -1209,11 +1156,9 @@ private fun PlaylistPage(ctx: Context, onAdd: () -> Unit, reload: () -> Unit) {
                 PlaylistStore.activate(ctx, i)
                 scope.launch { PlaylistStore.load(ctx, pl.url, false) }
             }
-            // Content mode (Wishbox): Live TV + VOD / Live TV only / VOD only, cycles on OK
             val mode = remember(PlaylistMode.version, pl.url) { PlaylistMode.get(ctx, pl.url) }
             SmallPill(PlaylistMode.labels[mode]) {
                 PlaylistMode.set(ctx, pl.url, (mode + 1) % PlaylistMode.labels.size)
-                // Parsed again from the stored list without network (the mode is applied while loading, saves memory)
                 scope.launch { if (!PlaylistStore.reapplyLanguages(ctx)) PlaylistStore.applyMode(ctx) }
             }
             SmallPill("Umbenennen") { editing = i; name = pl.name }
@@ -1301,7 +1246,6 @@ private fun ProfilesPage(ctx: Context, onExit: () -> Unit) {
     var editing by remember { mutableIntStateOf(-1) }
     var name by remember { mutableStateOf("") }
     Profiles.init(ctx)
-    // Locked profile (parental control with PIN): switching and editing profiles only after PIN entry
     var unlocked by remember { mutableStateOf(!Parental.profileLocked(ctx, Profiles.active)) }
     var pinErr by remember { mutableStateOf<String?>(null) }
     if (!unlocked) {
@@ -1340,10 +1284,6 @@ private fun ProfilesPage(ctx: Context, onExit: () -> Unit) {
     Hint("Beim Wechseln startet die App kurz neu.")
 }
 
-/**
- * Own API keys (open source: no key is built in). Without keys the app works, but shows
- * only what the playlist delivers.
- */
 @Composable
 private fun ApiKeysPage(ctx: Context) {
     val scope = rememberCoroutineScope()
@@ -1377,7 +1317,6 @@ private fun ApiKeysPage(ctx: Context) {
     if (sdStatus.isNotBlank()) Text(sdStatus, color = if (sdStatus == "Schlüssel gültig") Accent2 else Muted, fontSize = 16.sp)
 
     Hint("Die Schlüssel bleiben nur auf diesem Gerät. Nach dem Eintragen die App einmal neu starten, damit alle Bereiche die Infos laden. Intro- und Abspann-Zeiten kommen von TheIntroDB und brauchen keinen Schlüssel.")
-    // Buttons last: text below the last focusable element was cut off at the bottom of the page
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         PillButton(if (busy) "Bitte warten …" else "Speichern und prüfen", light = true, icon = AIcon.Check) {
             if (busy) return@PillButton
@@ -1423,7 +1362,6 @@ private fun settingsToast(ctx: Context, message: String) {
     android.widget.Toast.makeText(ctx, Lang.tr(message), android.widget.Toast.LENGTH_SHORT).show()
 }
 
-/** "Reset all settings": its own settings tab. The reset only runs after the confirmation dialog. */
 @Composable
 private fun ResetAllPage(ctx: Context) {
     var ask by remember { mutableStateOf(false) }
@@ -1437,7 +1375,6 @@ private fun ResetAllPage(ctx: Context) {
     }
 }
 
-/** Confirmation before everything is reset. Focus starts on "Abbrechen", so a stray OK press cannot reset anything. */
 @Composable
 private fun ResetAllDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
     val cancelFocus = remember { FocusRequester() }
@@ -1464,7 +1401,6 @@ private fun ResetAllDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
     }
 }
 
-/** App update from within the app: the default is the latest release on GitHub. */
 @Composable
 private fun UpdateSection(ctx: Context) {
     SectionTitle("App-Aktualisierung")
@@ -1476,7 +1412,6 @@ private fun UpdateSection(ctx: Context) {
     Text("Installiert: Version " + AppUpdate.currentName(ctx), color = Muted, fontSize = 16.sp)
     ToggleRow("Automatisch nach Updates suchen", "Einmal am Tag. Ein neues Update erscheint in der Glocke oben rechts.", auto) { auto = it; AppUpdate.setAuto(ctx, it) }
     Hint("Die Schlüssel bleiben nur auf diesem Gerät. Nach dem Eintragen die App einmal neu starten, damit alle Bereiche die Infos laden. Intro- und Abspann-Zeiten kommen von TheIntroDB und brauchen keinen Schlüssel.")
-    // Buttons last: text below the last focusable element was cut off at the bottom of the page
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         PillButton(if (busy) "Bitte warten …" else "Jetzt nach Update suchen") {
             if (busy) return@PillButton
@@ -1501,4 +1436,3 @@ private fun UpdateSection(ctx: Context) {
     var url by remember { mutableStateOf(AppUpdate.url(ctx).takeIf { it != AppUpdate.DEFAULT_URL }.orEmpty()) }
     Field(url, { url = it; AppUpdate.setUrl(ctx, it) }, "Eigene Update-Adresse (leer = GitHub)")
 }
-

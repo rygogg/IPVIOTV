@@ -1225,17 +1225,7 @@ fun PlayerScreen(req: PlayReq, zapList: List<Item>, liveAll: List<Item>, seriesI
             }
         }
         if (quickChMenu && curItem != null) {
-            ChannelMenu(
-                item = curItem,
-                inList = null,
-                onNewList = null,
-                onOpenMultiView = {
-                    MultiViewLogic.queueChannel(curItem.id)
-                    quickChMenu = false
-                    player.pause()
-                    showMultiView = true
-                }
-            ) { quickChMenu = false }
+            ChannelMenu(curItem, null, null) { quickChMenu = false }
         }
         second?.let { s2 ->
             SecondStream(
