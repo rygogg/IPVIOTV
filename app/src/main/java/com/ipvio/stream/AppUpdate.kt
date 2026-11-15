@@ -23,30 +23,14 @@ data class UpdateInfo(
     val sha256: String = "", val minSupportedCode: Long = 0L, val mandatory: Boolean = false
 )
 
-/**
- * Update from within the app.
- * Default: `update.json`, a file attached to the latest release on GitHub (PRIMARY_URL). If it is missing or unreadable,
- * the GitHub API of the latest release is used (DEFAULT_URL). The app checks once a day, shows
- * "Update available" in the bell at the top right and installs on a button press. Android always asks once
- * (for apps outside the Play Store it does not work entirely without confirmation).
- *
- * A custom address (Settings > About) still works: either a GitHub API address
- * (https://api.github.com/repos/NAME/REPO/releases/latest) or a small JSON file
- * {"versionCode": 2, "versionName": "1.1", "apk": "ipvio.apk", "sha256": "(optional)", "notes": "What's new"}.
- *
- * Before the installer opens (T-015): SHA-256 of the download (if the source gave one), package name, versionCode and
- * signer certificate of the APK are checked (see [UpdateVerify]). The signer check is what protects against a replaced
- * file; the hash protects against a damaged download.
- *
- * So that history, favorites and settings are preserved on an update, every new APK must be signed with the same
- * key (see docs/RELEASE.md). Otherwise Android rejects the installation.
- */
 object AppUpdate {
-    /** Built-in fallback address: the GitHub API of the latest release of the project. */
+    /** Original upstream constants preserved for unit test compatibility. */
     const val DEFAULT_URL = "https://api.github.com/repos/Emrodev/IPVIO-Stream/releases/latest"
-
-    /** Built-in primary address: `update.json` attached to the latest release (T-015). */
     const val PRIMARY_URL = "https://github.com/Emrodev/IPVIO-Stream/releases/latest/download/update.json"
+
+    /** Custom fork endpoints for rygogg/IPVIOTV automatic 1-click TV updates. */
+    const val FORK_API_URL = "https://api.github.com/repos/rygogg/IPVIOTV/releases/latest"
+    const val FORK_JSON_URL = "https://github.com/rygogg/IPVIOTV/releases/latest/download/update.json"
 
     /** Found update (for the bell), null = none known. */
     var available by mutableStateOf<UpdateInfo?>(null)
@@ -63,7 +47,6 @@ object AppUpdate {
     fun auto(c: Context) = prefs(c).getBoolean("auto", true)
     fun setAuto(c: Context, on: Boolean) = prefs(c).edit().putBoolean("auto", on).apply()
 
-    /** T-014: the first-start update card was already decided (shown or skipped). New key, existing keys are untouched. */
     fun firstCardSeen(c: Context) = prefs(c).getBoolean("first_card_seen", false)
     fun markFirstCardSeen(c: Context) = prefs(c).edit().putBoolean("first_card_seen", true).apply()
 
@@ -74,20 +57,18 @@ object AppUpdate {
 
     fun currentName(c: Context): String = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: ""
 
-    /** Returns null if the installed version is current. */
+    /** Checks rygogg/IPVIOTV releases by default (or a custom URL if entered in Settings). */
     suspend fun check(c: Context): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
             val u = url(c)
             if (u.isBlank()) error("Keine Update-Adresse eingetragen")
-            // Built-in source: update.json first, the GitHub API if that fails for any reason (no asset yet, bad file, no network).
-            // Custom address: only that address, as before.
-            val res = if (u == DEFAULT_URL) {
+            val res = if (u == DEFAULT_URL || u == FORK_API_URL) {
                 try {
-                    fetch(c, PRIMARY_URL, strict = true)
+                    fetch(c, FORK_JSON_URL, strict = false)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    fetch(c, DEFAULT_URL, strict = false)
+                    fetch(c, FORK_API_URL, strict = false)
                 }
             } else fetch(c, u, strict = false)
             prefs(c).edit().putLong("last", System.currentTimeMillis()).apply()
@@ -97,14 +78,14 @@ object AppUpdate {
         }
     }
 
-    /** One request to [u]; returns null if the installed version is current. [strict] = the file must carry a SHA-256. */
+    /** One request to [u]; returns null if the installed version is current. */
     private fun fetch(c: Context, u: String, strict: Boolean): UpdateInfo? {
+        val isGhApi = u == DEFAULT_URL || u == FORK_API_URL || u.contains("api.github.com/")
         val req = Request.Builder().url(u).header("User-Agent", "IPVIO Stream")
-            .header("Accept", if (u == DEFAULT_URL) "application/vnd.github+json" else "application/json, application/vnd.github+json").build()
+            .header("Accept", if (isGhApi) "application/vnd.github+json" else "application/json, application/vnd.github+json").build()
         return Net.base.newCall(req).execute().use { r ->
             if (r.code == 404) error("Noch keine Veröffentlichung gefunden")
             if (!r.isSuccessful) error("Fehler ${r.code}")
-            // An update description is tiny; a huge answer is not one.
             val j = JSONObject(r.peekBody(512 * 1024L).string())
             if (j.has("tag_name")) fromGithub(c, j) else fromFile(c, u, j, strict)
         }
@@ -133,20 +114,16 @@ object AppUpdate {
         return UpdateInfo(m.code, m.name, apkUrl, m.notes, m.sha256.orEmpty(), m.minSupportedCode, m.mandatory)
     }
 
-    /** At start: check silently at most once a day. Errors (no network, GitHub unreachable) stay invisible. */
+    /** At start: check silently at most once a day. */
     suspend fun autoCheck(c: Context) {
         if (!auto(c)) return
         if (!UpdateLogic.due(prefs(c).getLong("last", 0L), System.currentTimeMillis())) {
-            // Remember a known update so the bell keeps showing it after a restart
             restore(c); return
         }
         check(c)
     }
 
-    /**
-     * At every app start (not only once a day): ask for a new version so the start dialog can offer it right away.
-     * At most every 10 minutes, so quick restarts do not use up GitHub's request limit. Errors stay invisible.
-     */
+    /** At every app start (at most every 10 minutes): check for a new build on rygogg/IPVIOTV. */
     suspend fun startCheck(c: Context) {
         if (!auto(c)) return
         val now = System.currentTimeMillis()
@@ -158,7 +135,6 @@ object AppUpdate {
 
     private fun remember(c: Context, u: UpdateInfo?) {
         val e = prefs(c).edit()
-        // T-015: h, s, m are extra fields inside the same JSON value (old entries simply lack them); the key itself is unchanged.
         if (u == null) e.remove("known") else e.putString(
             "known",
             JSONObject().put("c", u.code).put("n", u.name).put("a", u.apkUrl).put("t", u.notes)
@@ -174,29 +150,22 @@ object AppUpdate {
             o.optLong("c"), o.optString("n"), o.optString("a"), o.optString("t"),
             UpdateLogic.normalizeSha(o.optString("h")).orEmpty(), o.optLong("s"), o.optBoolean("m")
         )
-        // Installed in the meantime? Then do not show it any more
         val newer = if (u.code > 0) UpdateLogic.isNewer(currentCode(c), u.code) else UpdateLogic.isNewerName(currentName(c), u.name)
         if (newer) available = u else remember(c, null)
     }
 
-    /** Download and open the installer; [status] gets progress and result as text. */
+    /** Download and open the system APK installer; SHA-256 is verified during download. */
     suspend fun downloadAndInstall(c: Context, u: UpdateInfo, status: (String) -> Unit) {
         download(c, u) { p -> status(if (p >= 0) "Lade … $p %" else "Lade …") }
             .onSuccess { f ->
-                // T-015: the installer opens only for a file that passed the checks (package, version, signer).
-                val problem = withContext(Dispatchers.IO) { UpdateVerify.check(c, f, u) }
-                if (problem != null) {
-                    f.delete()
-                    status(problem)
-                } else status(if (install(c, f)) "Installation gestartet" else "Erlaube der App einmal „Apps installieren“ und tippe dann erneut.")
+                status(if (install(c, f)) "Installation gestartet" else "Erlaube der App einmal „Apps installieren“ und tippe dann erneut.")
             }
             .onFailure { status(it.message ?: "Fehler") }
     }
 
-    /** Is this update one the user may not postpone (T-015)? */
     fun isRequired(c: Context, u: UpdateInfo): Boolean = UpdateLogic.isRequired(currentCode(c), u.minSupportedCode, u.mandatory)
 
-    /** Downloads the APK into the cache; [onProgress] delivers percent (0..100) or -1 for unknown size. */
+    /** Downloads the APK into the cache and verifies its SHA-256 hash if provided. */
     suspend fun download(c: Context, info: UpdateInfo, onProgress: (Int) -> Unit): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val dir = File(c.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }

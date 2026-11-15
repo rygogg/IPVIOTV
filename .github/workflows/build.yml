@@ -6,23 +6,86 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+
       - uses: gradle/actions/setup-gradle@v4
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
+
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Restore or create persistent signing key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ~/.android
+          if gh release download --pattern "debug.keystore" --dir ~/.android --clobber 2>/dev/null; then
+            echo "Restored persistent debug.keystore from latest release"
+          else
+            echo "Generating new persistent debug.keystore"
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Auto-increment build version
+        run: |
+          NEW_CODE=$((1000 + ${{ github.run_number }}))
+          NEW_NAME="2.0.${{ github.run_number }}"
+          sed -i -E "s/versionCode[[:space:]]*=[[:space:]]*[0-9]+/versionCode = ${NEW_CODE}/" app/build.gradle*
+          sed -i -E "s/versionName[[:space:]]*=[[:space:]]*\"[^\"]+\"/versionName = \"${NEW_NAME}\"/" app/build.gradle*
+
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
+
       - uses: actions/upload-artifact@v4
         with:
           name: ipvio-stream-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish Release for 1-Click TV Updates
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_FILE=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          cp "$APK_FILE" ipvio-update.apk
+          SHA256=$(sha256sum ipvio-update.apk | awk '{print $1}')
+          NEW_CODE=$((1000 + ${{ github.run_number }}))
+          NEW_NAME="2.0.${{ github.run_number }}"
+          TAG="v${NEW_NAME}"
+
+          cat <<EOF > update.json
+          {
+            "versionCode": ${NEW_CODE},
+            "versionName": "${NEW_NAME}",
+            "apk": "https://github.com/rygogg/IPVIOTV/releases/latest/download/ipvio-update.apk",
+            "sha256": "${SHA256}",
+            "notes": "IPVIOTV Build #${{ github.run_number }}"
+          }
+          EOF
+
+          gh release create "$TAG" ipvio-update.apk update.json ~/.android/debug.keystore \
+            --title "IPVIOTV ${NEW_NAME}" \
+            --notes "Automated build #${{ github.run_number }} for onn. 4K Pro" \
+            --latest
