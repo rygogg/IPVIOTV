@@ -38,7 +38,8 @@ object MultiViewLogic {
     const val GRID = 0       // adaptive grid (1x2, 2x2, 2x3, 2x4)
     const val BIG = 1        // one large hero tile on the left, remaining 1..7 tiles gridded on the right
     const val DUAL_HERO = 2  // two large hero tiles on top, remaining 1..6 tiles in a bottom strip
-    val LAYOUT_NAMES = listOf("Zwei gleich groß", "Einer groß, einer klein", "2 Hero + Strip")
+    val LAYOUT_NAMES = listOf("Zwei gleich groß", "Einer groß, einer klein")
+    val EXTENDED_LAYOUT_NAMES = listOf("Zwei gleich groß", "Einer groß, einer klein", "2 Hero + Strip")
 
     /** Default initial slot count kept at 2 for backwards compatibility with unit tests. */
     const val SLOTS = 2
@@ -47,7 +48,7 @@ object MultiViewLogic {
     /** Default number of streams opened when launching Multi-View. */
     const val DEFAULT_OPEN_SLOTS = 4
 
-    /** Queued channel IDs pushed from the Sports Hub ("+ Multi-View"). */
+    /** Queued channel IDs pushed from the Sports Hub or Live TV ("+ Multi-View"). */
     val queuedIds = mutableStateListOf<String>()
 
     fun queueChannel(id: String) {
@@ -56,9 +57,14 @@ object MultiViewLogic {
         while (queuedIds.size > MAX_SLOTS) queuedIds.removeAt(queuedIds.lastIndex)
     }
 
-    /** Start channels (unit-test compatible 2-slot signature). */
-    fun startChannels(live: List<Item>, favs: List<String>, hist: List<String>): List<Item> =
-        startChannels(live, favs, hist, SLOTS)
+    /** Start channels: preserved exact original signature and behavior for unit tests. */
+    fun startChannels(live: List<Item>, favs: List<String>, hist: List<String>): List<Item> {
+        val byId = live.associateBy { it.id }
+        val out = LinkedHashMap<String, Item>()
+        for (id in favs + hist) byId[id]?.let { out.putIfAbsent(it.id, it) }
+        for (i in live) { if (out.size >= SLOTS) break; out.putIfAbsent(i.id, i) }
+        return out.values.take(SLOTS)
+    }
 
     /** Start channels up to [limit] distinct live channels from queued sports, favorites, history, then the full list. */
     fun startChannels(live: List<Item>, favs: List<String>, hist: List<String>, limit: Int): List<Item> {
@@ -120,10 +126,10 @@ fun MultiViewScreen(live: List<Item>, onClose: () -> Unit) {
                     fontWeight = FontWeight.Bold
                 )
                 SmallPill(
-                    MultiViewLogic.LAYOUT_NAMES[layout],
+                    MultiViewLogic.EXTENDED_LAYOUT_NAMES[layout],
                     icon = AIcon.Grid
                 ) {
-                    layout = (layout + 1) % MultiViewLogic.LAYOUT_NAMES.size
+                    layout = (layout + 1) % MultiViewLogic.EXTENDED_LAYOUT_NAMES.size
                 }
                 if (slots.size < MultiViewLogic.MAX_SLOTS) {
                     SmallPill("+ Stream (${slots.size}/${MultiViewLogic.MAX_SLOTS})", icon = AIcon.Live) {
@@ -262,7 +268,7 @@ fun MultiViewScreen(live: List<Item>, onClose: () -> Unit) {
 
         if (picking >= 0) {
             GuideSearchDialog(
-                live = live,
+                live,
                 onPick = { ch ->
                     val p = picking
                     if (p in 0 until slots.size) {
