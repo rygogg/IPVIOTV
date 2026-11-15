@@ -954,12 +954,13 @@ private fun CategoryFilterSection(ctx: Context) {
     IgnoredGroups.init(ctx)
     val ver = IgnoredGroups.version
     val all = PlaylistStore.channels
-    val groups by produceState>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
+    val initMap: Map< Kind, List< Pair< String, Int > > > = emptyMap()
+    val groups by produceState(initMap, all.size, PlaylistStore.langCounts) {
         value = withContext(Dispatchers.Default) {
             val raw = PlaylistStore.unfilteredChannels()
-            val out = LinkedHashMap<Kind, List<Pair<String, Int>>>()
+            val out = LinkedHashMap< Kind, List< Pair< String, Int > > >()
             for (k in listOf(Kind.MOVIE, Kind.SERIES, Kind.LIVE)) {
-                val m = HashMap<String, Int>()
+                val m = HashMap< String, Int >()
                 for (i in raw) if (i.kind == k && i.group.isNotBlank()) m[i.group] = (m[i.group] ?: 0) + 1
                 out[k] = m.entries.sortedBy { it.key.lowercase() }.map { it.key to it.value }
             }
@@ -970,7 +971,7 @@ private fun CategoryFilterSection(ctx: Context) {
     SectionTitle("Kategorien ein- und ausblenden")
     Hint("Blende einzelne Kategorien aus oder schalte alle aus und nur die gewünschten wieder ein. Ausgeblendete Kategorien verschwinden sofort überall, ohne die Playlist neu zu laden.")
     val names = mapOf(Kind.MOVIE to "Filme", Kind.SERIES to "Serien", Kind.LIVE to "Live-TV")
-    var open by remember { mutableStateOf<Kind?>(null) }
+    var open by remember { mutableStateOf< Kind? >(null) }
     for ((kind, list) in groups) {
         if (list.isEmpty()) continue
         val keys = remember(list) { list.map { IgnoredGroups.groupKey(kind, it.first) } }
@@ -998,14 +999,15 @@ private fun IgnoredGroupsSection(ctx: Context) {
     IgnoredGroups.init(ctx)
     val ver = IgnoredGroups.version
     val all = PlaylistStore.channels
-    val stats by produceState>>>(emptyMap(), all.size, PlaylistStore.langCounts) {
+    val initStats: Map< Kind, List< Pair< String, Int > > > = emptyMap()
+    val stats by produceState(initStats, all.size, PlaylistStore.langCounts) {
         value = withContext(Dispatchers.Default) {
             val raw = PlaylistStore.unfilteredChannels()
-            val out = LinkedHashMap<Kind, List<Pair<String, Int>>>()
+            val out = LinkedHashMap< Kind, List< Pair< String, Int > > >()
             for (k in listOf(Kind.MOVIE, Kind.SERIES, Kind.LIVE)) {
-                val m = HashMap<String, Int>()
+                val m = HashMap< String, Int >()
                 for (i in raw) if (i.kind == k) { val t = IgnoredGroups.tagOf(i); m[t] = (m[t] ?: 0) + 1 }
-                out[k] = m.entries.sortedWith(compareBy>({ it.key.isEmpty() }, { -it.value })).take(40).map { it.key to it.value }
+                out[k] = m.entries.sortedWith(compareBy< Map.Entry< String, Int > >({ it.key.isEmpty() }, { -it.value })).take(40).map { it.key to it.value }
             }
             out
         }
@@ -1039,14 +1041,14 @@ private fun IgnoredGroupsSection(ctx: Context) {
 private fun LanguageFilterSection(ctx: Context) {
     val counts = PlaylistStore.langCounts
     val list = remember(counts) {
-        counts.entries.sortedWith(compareBy>({ it.key == LangTagLogic.UNKNOWN }, { -it.value })).map { it.key to it.value }
+        counts.entries.sortedWith(compareBy< Map.Entry< String, Int > >({ it.key == LangTagLogic.UNKNOWN }, { -it.value })).map { it.key to it.value }
     }
     val hidden = LangFilter.hidden
     var draft by remember(hidden) { mutableStateOf(hidden) }
     var warn by remember { mutableStateOf(false) }
     var big by remember { mutableStateOf(false) }
     val changed = draft != hidden
-    fun edit(h: Set<String>) { draft = h; warn = false }
+    fun edit(h: Set< String >) { draft = h; warn = false }
     fun apply() {
         if (list.isNotEmpty() && list.all { it.first in draft }) { warn = true; big = false; return }
         warn = false
