@@ -481,10 +481,11 @@ private fun GeneralPage(ctx: Context) {
     Hint("Diese Seite öffnet sich beim Start der App. Versteckte Menüpunkte sind nicht wählbar.")
     ToggleRow("Letzten Sender beim Start abspielen", "Wenn du zuletzt Live TV gesehen hast, läuft dieser Sender direkt nach dem Start.", General.resumeLive) { General.setResumeLive(ctx, it) }
     ToggleRow("Letzten Film / letzte Serie beim Start fortsetzen", "Wenn du zuletzt einen Film oder eine Serie gesehen hast, läuft sie nach dem Start an der gemerkten Stelle weiter (bei einer fertigen Folge mit der nächsten).", General.resumeVod) { General.setResumeVod(ctx, it) }
-
+RemoteKeySettingsSection(ctx)
     SectionTitle("Bedienung")
     ToggleRow("Tastatur des Geräts in der Suche", "Aus: die eingebaute Tastatur der App. An: die Tastatur deines Geräts (z. B. Gboard) mit allen Sprachen, Sprachfunktion und Einfügen. Mit OK auf das Suchfeld wird sie geöffnet.", AppSettings.systemKeyboard) { AppSettings.setSystemKeyboard(ctx, it) }
-    ToggleRow("Beenden bestätigen", "Auf der Startseite muss „Zurück“ zweimal gedrückt werden, damit die App nicht aus Versehen schließt.", General.confirmExit) { General.setConfirmExit(ctx, it) }
+    ToggleRow("Beenden bestätigen", "Auf der Startseite muss „Zurück“ zweimal gedrückt werden, damit die App nicht aus Versehen schließt.", ) {General.confirmExit General.setConfirmExit(ctx, it) }
+
     // Phone/tablet: landscape (the UI is built for the TV)
     if (MobilePrefs.isMobile(ctx)) {
         val act = generateSequence<Context>(ctx) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
@@ -712,6 +713,7 @@ private fun PlayerPage(ctx: Context) {
     SelectRow("Fenstergröße", DualPrefs.SIZE_NAMES[DualPrefs.size], DualPrefs.SIZE_NAMES, DualPrefs.size) { DualPrefs.set(ctx, size = it) }
     SelectRow("Position", DualPrefs.CORNER_NAMES[DualPrefs.corner], DualPrefs.CORNER_NAMES, DualPrefs.corner) { DualPrefs.set(ctx, corner = it) }
     Hint("Gilt für Bild-in-Bild. Deine Auswahl wird gespeichert.")
+    RemoteKeySettingsSection(ctx)
     SourceSettingsSection(ctx)
     DeadLinksSection(ctx)
 }
