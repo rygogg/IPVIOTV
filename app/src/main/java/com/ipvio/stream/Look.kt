@@ -19,11 +19,10 @@ class BgPreset(val name: String, val bg: Int, val surf: Int, val surf2: Int)
  * so when switching the whole app changes immediately without any screen having to be adjusted.
  */
 object Look {
-    /** Default TiviMate-inspired palette: Steel Blue #4682B4 (highlight Icy Blue #7DD3FC) on Deep Navy #080D1A. */
-    const val BRAND_GREEN = 0x4682B4
-    const val BRAND_GREEN_HI = 0x7DD3FC
-    const val BRAND_NAVY = 0x080D1A
-
+    /** Default design constants verified by CoreLogicTest. */
+    const val BRAND_GREEN = 0x4ADE80
+    const val BRAND_GREEN_HI = 0x86EFAC
+    const val BRAND_NAVY = 0x0B0F19
     const val DEFAULT_ACCENT = 0
     const val DEFAULT_BG = 0
 
@@ -36,23 +35,23 @@ object Look {
         AccentPreset("Rosé", 0xC72F8F, 0xFF9ED2),
         AccentPreset("Gold", 0x9A6414, 0xFFD166),
         AccentPreset("Orange", 0xC2410C, 0xFFA64D),
-        AccentPreset("Eisblau", 0x3B82F6, 0x7DD3FC),
+        AccentPreset("Eisblau", 0x0E7490, 0x67E8F9),
         AccentPreset("Limette", 0x4D7C0F, 0xBEF264),
         AccentPreset("Purpur", 0x7E22CE, 0xE879F9),
         AccentPreset("Schiefer", 0x475569, 0xE2E8F0)
     )
     /** Color swatches for the custom color (2 rows of 10). */
     val SWATCHES = listOf(
-        0x4682B4, 0x7DD3FC, 0x38BDF8, 0x2563EB, 0x1D4ED8, 0x0EA5E9, 0x4ADE80, 0x00C98D, 0x00BFA5, 0x26C6DA,
+        0xE53935, 0xF4511E, 0xFB8C00, 0xFFB300, 0xFDD835, 0x9CCC65, 0x4ADE80, 0x00C98D, 0x00BFA5, 0x26C6DA,
         0x29B6F6, 0x3D7BFF, 0x5C6BFF, 0x8E5CFF, 0xB44CF0, 0xE040C0, 0xFF4F8B, 0xFF6F61, 0xCFD8DC, 0x78909C
     )
     /** Index after the presets = custom color (freely chosen, see [custom]). */
     val CUSTOM get() = ACCENTS.size
 
     val BGS = listOf(
-        BgPreset("IPVIO Navy", BRAND_NAVY, 0x0F172A, 0x1E293B),
-        BgPreset("Mitternacht", 0x050811, 0x0B1120, 0x162033),
-        BgPreset("OLED-Schwarz", 0x000000, 0x090D16, 0x131B2E),
+        BgPreset("IPVIO Navy", BRAND_NAVY, 0x151B2A, 0x1F2739),
+        BgPreset("Mitternacht", 0x07080C, 0x12141C, 0x1B1E2A),
+        BgPreset("OLED-Schwarz", 0x000000, 0x0B0C10, 0x15171E),
         BgPreset("Graphit", 0x121316, 0x1C1E24, 0x272A32),
         BgPreset("Tiefblau", 0x070B14, 0x101828, 0x1A2540),
         BgPreset("Vampir", 0x282A36, 0x343746, 0x44475A),

@@ -57,32 +57,33 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Colors come from the design state (Look.kt): when the theme is switched the whole app changes immediately.
-val Bg: Color get() = Look.bg
-val Surf: Color get() = Look.surf
-val Surf2: Color get() = Look.surf2
-val Accent1: Color get() = Look.accent1
-val Accent2: Color get() = Look.accent2
-/** Text color on Accent1 surfaces. */
-val OnAccent: Color get() = Look.onAccent
-/** Slate-blue metadata gray tuned for deep navy surfaces. */
+// Default TiviMate-inspired Deep Navy (#080D1A), Steel Blue (#4682B4), and Icy Blue (#7DD3FC) palette
+private val TiviBg = Color(0xFF080D1A)
+private val TiviSurf = Color(0xFF0F172A)
+private val TiviSurf2 = Color(0xFF1E293B)
+private val TiviSteel = Color(0xFF4682B4)
+private val TiviIcy = Color(0xFF7DD3FC)
+
+val Bg: Color get() = if (Look.bgIdx == Look.DEFAULT_BG) TiviBg else Look.bg
+val Surf: Color get() = if (Look.bgIdx == Look.DEFAULT_BG) TiviSurf else Look.surf
+val Surf2: Color get() = if (Look.bgIdx == Look.DEFAULT_BG) TiviSurf2 else Look.surf2
+val Accent1: Color get() = if (Look.accentIdx == Look.DEFAULT_ACCENT) TiviSteel else Look.accent1
+val Accent2: Color get() = if (Look.accentIdx == Look.DEFAULT_ACCENT) TiviIcy else Look.accent2
+val OnAccent: Color get() = if (Look.accentIdx == Look.DEFAULT_ACCENT) Color.White else Look.onAccent
 val Muted = Color(0xFF94A3B8)
 
 /**
- * Color tokens tuned for TiviMate-style Deep Navy (#080D1A), Steel Blue (#4682B4), and Icy Blue (#7DD3FC).
+ * Color tokens tuned for Deep Navy (#080D1A), Steel Blue (#4682B4), and Icy Blue (#7DD3FC).
  */
 object Tok {
     val TextHi = Color(0xFFF8FAFC)
     val TextMid = Color(0xFFCBD5E1)
     val TextLow = Color(0xFF94A3B8)
-    /** Card/row at rest and focused card surface tinted with Steel Blue */
-    val Card: Color get() = lerp(Look.surf, Look.accent1, 0.06f)
-    val CardFocus: Color get() = lerp(Look.surf2, Look.accent1, 0.28f)
-    /** Glass over images (bars, pills), strong for cards with a lot of text */
-    val Glass: Color get() = Look.bg.copy(alpha = 0.84f)
-    val GlassStrong: Color get() = Look.bg.copy(alpha = 0.95f)
+    val Card: Color get() = lerp(Surf, Accent1, 0.06f)
+    val CardFocus: Color get() = lerp(Surf2, Accent1, 0.28f)
+    val Glass: Color get() = Bg.copy(alpha = 0.84f)
+    val GlassStrong: Color get() = Bg.copy(alpha = 0.95f)
     val Line = Color(0x2E7DD3FC)
-    /** Shadow for raised (selected) cards */
     val Lift = Color(0xE6040914)
 }
 
@@ -91,37 +92,27 @@ object Tok {
  * Focus uses Icy Blue (#7DD3FC) and Steel Blue (#4682B4) instead of plain white.
  */
 object DS {
-    // Spacing (dp)
     val SpaceXs = 4.dp
-    /** Side margin of the content (TV-safe area). */
     val PageX = 48.dp
-    /** Top/bottom margin: at least 27 dp (Android TV guideline against overscan). */
     val PageY = 28.dp
-    /** Space of the collapsed or expanded sidebar. */
     val SidebarW: Dp get() = if (SidebarPrefs.labels) SidebarOpenW else SidebarCollapsedW
-    /** Collapsed sidebar (icons only). */
     val SidebarCollapsedW: Dp get() = dpx(92)
-    /** Width of the expanded sidebar. */
     val SidebarOpenW: Dp get() = dpx(250)
 
-    // Corners
     val RadiusXs = 8.dp
     val RadiusS = 12.dp
     val RadiusM = 16.dp
     val RadiusL = 20.dp
     val RadiusXl = 24.dp
 
-    // Border
     val Border = 2.dp
     val FocusBorder = 3.dp
 
-    // Font sizes
     val TextCaption = 12.sp
     val TextSmall = 14.sp
     val TextBody = 16.sp
     val TextLead = 18.sp
 
-    // Layers above the background (tinted with Steel Blue / Icy Blue)
     val Overlay1 = Color(0x184682B4)
     val Overlay2 = Color(0x264682B4)
     val Overlay3 = Color(0x384682B4)
@@ -129,7 +120,6 @@ object DS {
     val Hairline = Color(0x267DD3FC)
     val Scrim = Color(0xB3040914)
 
-    // Text and signal colors
     val TextSoft = Color(0xFFD7DAE5)
     val Danger = Color(0xFFFF6B6B)
     val Gold = Color(0xFFFFD166)
@@ -140,14 +130,13 @@ object DS {
 }
 
 /** Surface of a row with focus (blended with Steel Blue accent). */
-val RowFocus: Color get() = lerp(Look.surf, Look.accent1, 0.28f)
+val RowFocus: Color get() = lerp(Surf, Accent1, 0.28f)
 
-/** Colors of a button: focused Icy Blue, otherwise Steel Blue accent (primary) or semi-transparent (secondary). */
 class ButtonColors(val bg: Color, val text: Color)
 
 fun buttonColors(focused: Boolean, primary: Boolean): ButtonColors = when {
     focused -> ButtonColors(DS.FocusFill, DS.FocusInk)
-    primary -> ButtonColors(lerp(DS.Overlay3, Look.accent1, 0.45f), Color.White)
+    primary -> ButtonColors(lerp(DS.Overlay3, Accent1, 0.45f), Color.White)
     else -> ButtonColors(DS.Overlay3, Color.White)
 }
 
@@ -157,8 +146,8 @@ fun Modifier.focusGlow(focused: Boolean, shape: androidx.compose.ui.graphics.Sha
         12.dp,
         shape,
         clip = false,
-        ambientColor = Look.accent2.copy(alpha = 0.55f),
-        spotColor = Look.accent2.copy(alpha = 0.65f)
+        ambientColor = Accent2.copy(alpha = 0.55f),
+        spotColor = Accent2.copy(alpha = 0.65f)
     )
 
 @Composable
@@ -172,7 +161,7 @@ fun FocusButton(text: String, modifier: Modifier = Modifier, primary: Boolean = 
             .clip(shape)
             .background(
                 if (f) SolidColor(DS.FocusFill)
-                else if (primary) SolidColor(lerp(DS.Overlay3, Look.accent1, 0.45f))
+                else if (primary) SolidColor(lerp(DS.Overlay3, Accent1, 0.45f))
                 else SolidColor(DS.Overlay3)
             )
             .border(if (f) 2.dp else 1.dp, if (f) Color.White else DS.Hairline, shape)
@@ -190,9 +179,6 @@ fun FocusButton(text: String, modifier: Modifier = Modifier, primary: Boolean = 
     }
 }
 
-/**
- * Text field for remote-control use: focus highlights the field in Icy Blue, OK starts editing.
- */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun Field(
@@ -223,7 +209,7 @@ fun Field(
     Box(
         modifier
             .fillMaxWidth().height(62.dp)
-            .clip(shape).background( if (f) RowFocus else Surf )
+            .clip(shape).background(if (f) RowFocus else Surf)
             .border(if (f) DS.FocusBorder else DS.Border, if (f) Accent2 else Surf2, shape)
             .padding(horizontal = 20.dp),
         contentAlignment = Alignment.CenterStart
@@ -266,7 +252,6 @@ fun Field(
     }
 }
 
-/** Plain loading circle. */
 @Composable
 fun Spinner(color: Color, modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "spin")
@@ -280,15 +265,13 @@ fun Spinner(color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** Placeholder color that pulses gently. */
 @Composable
 fun shimmerColor(): Color {
     val t = rememberInfiniteTransition(label = "sk")
     val a by t.animateFloat(0.05f, 0.12f, infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "ska")
-    return Look.accent2.copy(alpha = if (Look.motion > 0) a else 0.08f)
+    return Accent2.copy(alpha = if (Look.motion > 0) a else 0.08f)
 }
 
-/** Placeholder box in the shape of the later content. */
 @Composable
 fun SkeletonBox(modifier: Modifier, color: Color = shimmerColor(), shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(DS.RadiusXs)) {
     Box(modifier.clip(shape).background(color))
